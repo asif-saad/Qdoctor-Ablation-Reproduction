@@ -4,6 +4,8 @@ Code for the CMPS 7010 Research Seminar project (Tulane University) by Asif Moha
 It reproduces the input × measurement ablation of QDoctor (Wang et al., ASE 2026) on
 single-gate mutants of 3- and 4-qubit GHZ, QFT, Grover and W-state circuits from MQT Bench.
 
+Presentation slides: [`slides.pptx`](slides.pptx).
+
 ## Setup
 
 Requires Python 3.11.
