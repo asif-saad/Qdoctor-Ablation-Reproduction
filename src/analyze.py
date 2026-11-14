@@ -258,20 +258,72 @@ def fig_budget(ks, curves):
     fig.tight_layout(); fig.savefig(RES / "fig_probe_budget.png", dpi=200); plt.close(fig)
 
 
-def fig_heatmap(by_prog):
-    t = by_prog[MAIN]
-    fig, ax = plt.subplots(figsize=(5.6, 3.8))
-    im = ax.imshow(t.values, cmap="Blues", vmin=40, vmax=100, aspect="auto")
-    ax.set_xticks(range(4), MAIN); ax.set_yticks(range(len(t)), t.index)
+def fig_heatmap(by_prog, by_op):
+    """Recall per program and per mutation operator (one sequential hue, gap between the two blocks)."""
+    t = pd.concat([by_prog[MAIN], pd.DataFrame(np.nan, index=[""], columns=MAIN),
+                   by_op[MAIN].rename(index=str.capitalize)])
+    fig, ax = plt.subplots(figsize=(5.2, 4.6))
+    im = ax.imshow(np.ma.masked_invalid(t.values), cmap="Blues", vmin=20, vmax=100, aspect="auto")
+    ax.set_xticks(range(4), [LABEL[c].replace(" ", "\n", 1) for c in MAIN], fontsize=8)
+    ax.set_yticks(range(len(t)), t.index); ax.tick_params(length=0)
+    ax.set_xticks(np.arange(-0.5, 4), minor=True); ax.set_yticks(np.arange(-0.5, len(t)), minor=True)
+    ax.grid(which="minor", color=SURF, lw=2); ax.tick_params(which="minor", length=0)
     for i in range(t.shape[0]):
         for j in range(4):
             v = t.values[i, j]
-            ax.text(j, i, f"{v:.1f}", ha="center", va="center", fontsize=8, color="white" if v > 80 else INK)
+            if not np.isnan(v):
+                ax.text(j, i, f"{v:.0f}" if v == 100 else f"{v:.1f}", ha="center", va="center",
+                        fontsize=8, color="white" if v > 70 else INK)
     for s in ax.spines.values():
         s.set_visible(False)
-    cb = fig.colorbar(im, ax=ax, fraction=0.04); cb.set_label("Recall (%)")
-    ax.set_title("Recall by program and configuration", fontsize=10, color=INK, loc="left")
+    cb = fig.colorbar(im, ax=ax, fraction=0.05, pad=0.03); cb.set_label("Recall (%)"); cb.outline.set_visible(False)
+    ax.set_title("Recall by program (top) and mutation operator (bottom)", fontsize=10, color=INK, loc="left")
     fig.tight_layout(); fig.savefig(RES / "fig_recall_by_program.png", dpi=200); plt.close(fig)
+
+
+def fig_structural(struct):
+    """Recall per configuration within each exact mutant category."""
+    names = ["Z-invisible\n(U′ = DU)", "Relative-phase", "Amplitude-changing"]
+    x = np.arange(3); w = 0.2
+    fig, ax = plt.subplots(figsize=(6.4, 3.4))
+    for k, c in enumerate(MAIN):
+        v = struct[c].values
+        xs = x + (k - 1.5) * (w + 0.015)
+        ax.bar(xs, v, w, color=COLORS[c], label=LABEL[c])
+        for xi, vi in zip(xs, v):
+            ax.text(xi, vi + 1.5, "0" if vi == 0 else f"{vi:.0f}", ha="center", fontsize=7.5, color=INK)
+    ax.set_xticks(x, [f"{n}\n{int(m):,} mutants ({s:.1f}%)" for n, m, s in
+                      zip(names, struct["mutants"], struct["share (%)"])], fontsize=8.5)
+    ax.set_ylabel("Recall (%)"); ax.set_ylim(0, 112); ax.set_yticks(range(0, 101, 25))
+    ax.yaxis.grid(True, color=GRIDC, lw=0.8); ax.set_axisbelow(True); ax.tick_params(axis="x", length=0)
+    ax.legend(frameon=False, ncol=4, fontsize=7.5, loc="upper center", bbox_to_anchor=(0.5, 1.13))
+    fig.tight_layout(); fig.savefig(RES / "fig_structural.png", dpi=200); plt.close(fig)
+
+
+DIAGONAL = {"cp", "p", "crz", "rz", "cz", "t", "tdg", "s", "z", "sdg", "id"}
+
+
+def fig_gate_misses(gm):
+    """Miss rate per mutated gate, diagonal (phase-only) gates first; A4 misses none and is omitted."""
+    gm = gm.copy(); gm["diag"] = gm.index.isin(DIAGONAL)
+    gm = gm.sort_values(["diag", "A1"], ascending=[True, True])
+    y = np.arange(len(gm)); nd = int((~gm.diag).sum())
+    fig, ax = plt.subplots(figsize=(6.4, 5.6))
+    ax.axhspan(nd - 0.5, len(gm) - 0.5, color=GRIDC, alpha=0.55, lw=0)
+    ax.hlines(y, gm[["A1", "A2", "A3"]].min(axis=1), gm[["A1", "A2", "A3"]].max(axis=1), color=GRIDC, lw=2, zorder=1)
+    for c, mk in [("A1", "o"), ("A2", "s"), ("A3", "D")]:
+        ax.scatter(gm[c], y, s=48 if c == "A1" else 30, marker=mk, color=COLORS[c], edgecolor=SURF, lw=1, zorder=2, label=LABEL[c])
+    ax.set_yticks(y, [f"{g}  ({int(n)})" for g, n in zip(gm.index, gm["ineqv mutants"])], fontsize=8)
+    ax.set_ylim(-0.7, len(gm) - 0.3); ax.tick_params(axis="y", length=0)
+    tr = matplotlib.transforms.blended_transform_factory(ax.transAxes, ax.transData)
+    ax.text(1.015, (nd + len(gm) - 1) / 2, "diagonal gates", transform=tr, rotation=270,
+            ha="left", va="center", fontsize=8, color=INK2)
+    ax.text(1.015, (nd - 1) / 2, "non-diagonal gates", transform=tr, rotation=270, ha="left", va="center",
+            fontsize=8, color=INK2)
+    ax.set_xlim(-2, 70); ax.set_xlabel("Inequivalent mutants missed (%)   ·   A4 misses 0% for every gate")
+    ax.xaxis.grid(True, color=GRIDC, lw=0.8); ax.set_axisbelow(True)
+    ax.legend(frameon=False, ncol=3, fontsize=8, loc="upper center", bbox_to_anchor=(0.45, 1.06))
+    fig.tight_layout(); fig.savefig(RES / "fig_gate_misses.png", dpi=200); plt.close(fig)
 
 
 def fig_separation(d):
@@ -320,7 +372,8 @@ def main() -> None:
                     ("table_by_algorithm", by_alg), ("table_by_operator", by_op),
                     ("table_gate_misses", gm), ("table_noise_floor", nf), ("table_probe_budget", curves.round(2))]:
         t.to_csv(RES / f"{name}.csv")
-    fig_recall(per_run); fig_budget(ks, curves); fig_heatmap(by_prog); fig_separation(d)
+    fig_recall(per_run); fig_budget(ks, curves); fig_heatmap(by_prog, by_op); fig_separation(d)
+    fig_structural(struct); fig_gate_misses(gm)
 
     n_eq = int(idx.equivalent.sum()); n_ieq = int((~idx.equivalent).sum())
     out = ["# RESULTS (auto-generated by `src/analyze.py` — do not edit by hand)\n",
@@ -339,7 +392,7 @@ def main() -> None:
            "### By mutation operator\n", md(by_op),
            "## 8. Miss rate (%) by mutated gate (gate added / replaced-in / removed)\n", md(gm),
            "## 9. Recall vs probe budget k\n", md(curves.round(2).iloc[[0, 1, 3, 7, 11, 15, 19]]),
-           "## Figures\n", "- `fig_recall_vs_paper.png`\n- `fig_probe_budget.png`\n- `fig_recall_by_program.png`\n- `fig_jsd_separation.png`\n"]
+           "## Figures\n", "- `fig_recall_vs_paper.png`\n- `fig_probe_budget.png`\n- `fig_recall_by_program.png`\n- `fig_jsd_separation.png`\n- `fig_structural.png`\n- `fig_gate_misses.png`\n"]
     (RES / "RESULTS.md").write_text("\n".join(out))
     print("\n".join(out))
 
